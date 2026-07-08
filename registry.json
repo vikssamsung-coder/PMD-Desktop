@@ -1,0 +1,13 @@
+{
+  "engines": [
+    {
+      "id": "reference_rollup",
+      "name": "Reference Rollup",
+      "module_path": "engines/reference_rollup.py",
+      "commit": "REPLACE_WITH_COMMIT_SHA",
+      "description": "Template engine — copy it to build a real one. Echoes inputs so the framework can be verified end to end.",
+      "inputs": ["data", "prompt"],
+      "output": "md"
+    }
+  ]
+}
