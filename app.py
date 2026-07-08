@@ -3184,12 +3184,91 @@ def updates_view(user):
 _CONTENT_TYPES = ["banner", "video", "contest", "result", "update"]
 
 
+def _admin_users_panel():
+    st.markdown("#### Users & logins")
+    st.caption("Create or edit team logins. The **role** decides which Role prompt the "
+               "person gets (it must match a role_prompts/<role>.md file). Passwords are "
+               "stored hashed. Saves to the shared users table (Neon when configured).")
+
+    df = storage.get_users()
+    if df.empty:
+        st.info("No users yet — add one below.")
+    else:
+        hc = st.columns([3, 3, 2, 2])
+        for col, h in zip(hc, ["Name / username", "Role", "Status", ""]):
+            col.markdown(f"<span style='font-size:12px;font-weight:700;color:#5C6B7A;'>{h}</span>",
+                         unsafe_allow_html=True)
+        for _, u in df.sort_values("user_key").iterrows():
+            uk = str(u["user_key"])
+            active = str(u.get("active", "Yes")).strip().lower() in ("yes", "true", "1", "y", "")
+            rc = st.columns([3, 3, 2, 2])
+            rc[0].markdown(f"**{u.get('name') or uk}**  \n`{uk}`")
+            rc[1].markdown((u.get("role", "") or "—").replace("_", " "))
+            rc[2].markdown("🟢 active" if active else "🔴 inactive")
+            if rc[3].button("Deactivate" if active else "Activate", key=f"ua_{uk}"):
+                storage.set_user_active(uk, "No" if active else "Yes")
+                st.rerun()
+
+    st.divider()
+    st.markdown("##### Add or edit a login")
+    st.caption("To edit someone, enter their existing username. Leave the password blank "
+               "to keep the current one; type a new one to reset it.")
+    c = st.columns(2)
+    uk_in = c[0].text_input("Username (user_key)", key="au_uk", placeholder="e.g. rinku")
+    name_in = c[1].text_input("Display name", key="au_name")
+    # Role options are read live from the repo's role_prompts/ files, so any <role>.md you
+    # upload appears here automatically — plus ADMIN and a type-your-own option.
+    role_list = storage.available_roles()
+    OTHER = "➕ Other (type a name)…"
+    c2 = st.columns(2)
+    role_sel = c2[0].selectbox("Role", role_list + ["ADMIN", OTHER], key="au_role")
+    dept_in = c2[1].text_input("Department (optional)", key="au_dept")
+    if role_sel == OTHER:
+        role_in = st.text_input(
+            "Role name — must exactly match a role_prompts/<name>.md in the repo",
+            key="au_role_custom").strip()
+    else:
+        role_in = role_sel
+    pw_in = st.text_input("Password (blank = keep existing when editing)",
+                          type="password", key="au_pw")
+    if st.button("Save login", type="primary", key="au_save"):
+        if not (uk_in or "").strip():
+            st.error("Username is required.")
+        elif not (role_in or "").strip():
+            st.error("Pick a role, or type one that matches a role_prompts/<name>.md file.")
+        else:
+            try:
+                action, saved = storage.upsert_user(
+                    uk_in, name_in, role_in, password=(pw_in or None),
+                    department=dept_in,
+                    login_role="admin" if role_in == "ADMIN" else "member")
+                st.success(f"Login '{saved}' {action}. They can sign in with this "
+                           "username and password.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Couldn't save: {e}")
+
+    st.divider()
+    with st.expander("⚙️ Database schema (Neon)"):
+        st.caption("Create any missing tables in the shared Neon database (e.g. login_log). "
+                   "Idempotent and safe to run anytime — it only adds what's missing and "
+                   "never touches existing data. Both the cloud and desktop apps use this "
+                   "same database, so running it once here updates it for everyone.")
+        if st.button("Update database schema now", key="db_init_btn"):
+            with st.spinner("Updating Neon schema…"):
+                ok, msg = storage.ensure_db_schema()
+            (st.success if ok else st.error)(msg)
+
+
 def admin_view(user):
     if not _is_admin(user):
         st.error("Admins only."); return
     st.markdown("### 🛡️ Admin — content & MIS")
-    tab_pub, tab_manage, tab_mis, tab_team, tab_analysis = st.tabs(
-        ["Publish", "Manage", "MIS push", "Team status", "Analysis"])
+    tab_pub, tab_manage, tab_mis, tab_users, tab_team, tab_analysis = st.tabs(
+        ["Publish", "Manage", "MIS push", "Users", "Team status", "Analysis"])
+
+    with tab_users:
+        _admin_users_panel()
 
     # ---- Publish ----
     with tab_pub:
