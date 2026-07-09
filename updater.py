@@ -1,23 +1,25 @@
 r"""
-updater.py — the manual "Update app" control (Settings).
+updater.py — the manual "Update app" control (Settings, desktop only).
 
-The .bat/.command launchers don't pull updates, so this is how a machine gets the
-latest code, role prompts, and engines you've pushed to GitHub. Deliberately
-manual (a button), not automatic on login: a bad push shouldn't break every
-analyst at once — the person chooses when to update.
+The launchers don't pull updates, so this is how a machine gets the latest code,
+role prompts, and engines you've pushed to GitHub. Deliberately manual (a button),
+not automatic: a bad push shouldn't break every machine at once.
 
-Two mechanisms, auto-selected:
-  * git checkout  -> `git pull --ff-only` (clean, fast, preserves nothing local)
-  * zip install   -> download the repo tarball at the branch tip and overwrite the
-                     app's code files in place. User data lives OUTSIDE the repo
-                     (under D:\Sarthi - Plan My Day), so code overwrite is safe.
+Mechanisms, auto-selected:
+  * git checkout -> `git pull --ff-only`
+  * zip install  -> download the repo tarball at the branch tip and overwrite the
+                    app's code files in place. User DATA lives OUTSIDE the repo
+                    (D:\Sarthi - Plan My Day) and .streamlit is skipped, so an
+                    update never touches data or secrets.
 
-After a successful update the app must be restarted to load new code — Streamlit
-can't hot-swap running modules reliably. We tell the user clearly.
+IMPORTANT: copying new files does NOT change the running app. Python keeps the
+already-imported modules (db.py, storage.py, ...) in memory until the process is
+fully restarted. A browser refresh is NOT enough — you must stop and relaunch.
 """
 
 import os
 import io
+import json
 import time
 import shutil
 import tarfile
@@ -31,9 +33,7 @@ import paths
 import desktop_config as cfg
 
 GITHUB_API = "https://api.github.com"
-
-# files/dirs we never overwrite from an update (local/data, not code)
-_SKIP = {".git", ".streamlit", "__pycache__"}
+_SKIP = {".git", ".streamlit", "__pycache__", ".devcontainer"}   # never overwrite these
 
 
 def _headers():
@@ -42,6 +42,39 @@ def _headers():
     if p:
         h["Authorization"] = "Bearer " + p
     return h
+
+
+def _version_file():
+    return os.path.join(paths.common_dir(), ".installed_version.json")
+
+
+def _installed_sha():
+    try:
+        with open(_version_file(), "r", encoding="utf-8") as fh:
+            return json.load(fh).get("sha", "")
+    except Exception:
+        return ""
+
+
+def _save_installed_sha(sha):
+    try:
+        os.makedirs(os.path.dirname(_version_file()), exist_ok=True)
+        with open(_version_file(), "w", encoding="utf-8") as fh:
+            json.dump({"sha": sha, "at": time.strftime("%Y-%m-%d %H:%M:%S")}, fh)
+    except Exception:
+        pass
+
+
+def _latest_remote_sha():
+    """Latest commit SHA on the branch, or '' if it can't be fetched."""
+    url = "{api}/repos/{o}/{r}/commits/{ref}".format(
+        api=GITHUB_API, o=cfg.owner(), r=cfg.repo(), ref=cfg.branch())
+    try:
+        resp = requests.get(url, headers=_headers(), timeout=20)
+        resp.raise_for_status()
+        return resp.json().get("sha", "") or ""
+    except Exception:
+        return ""
 
 
 def _git_pull():
@@ -54,16 +87,16 @@ def _git_pull():
 
 
 def _tarball_update():
-    """Download the branch tarball and overwrite code files in repo_dir()."""
+    """Download the branch tarball and overwrite code files in repo_dir().
+    Returns (file_count, list_of_key_files_changed)."""
     url = "{api}/repos/{o}/{r}/tarball/{ref}".format(
         api=GITHUB_API, o=cfg.owner(), r=cfg.repo(), ref=cfg.branch())
-    resp = requests.get(url, headers=_headers(), timeout=120)
+    resp = requests.get(url, headers=_headers(), timeout=180)
     resp.raise_for_status()
 
     tmp = tempfile.mkdtemp()
     with tarfile.open(fileobj=io.BytesIO(resp.content), mode="r:gz") as tf:
         tf.extractall(tmp)
-    # tarball extracts to a single top folder like owner-repo-<sha>/
     tops = [d for d in os.listdir(tmp) if os.path.isdir(os.path.join(tmp, d))]
     if not tops:
         raise RuntimeError("empty tarball")
@@ -71,6 +104,7 @@ def _tarball_update():
 
     dst = paths.repo_dir()
     n = 0
+    key = []
     for root, dirs, files in os.walk(src):
         dirs[:] = [d for d in dirs if d not in _SKIP]
         rel = os.path.relpath(root, src)
@@ -79,8 +113,10 @@ def _tarball_update():
         for f in files:
             shutil.copy2(os.path.join(root, f), os.path.join(target_root, f))
             n += 1
+            if f in ("app.py", "db.py", "storage.py", "requirements.txt"):
+                key.append(f)
     shutil.rmtree(tmp, ignore_errors=True)
-    return "%d file(s) updated" % n
+    return n, key
 
 
 def render_update_section(user):
@@ -88,21 +124,45 @@ def render_update_section(user):
     mode = "git checkout" if cfg.is_git_checkout() else "zip install"
     st.caption("Source: github.com/%s/%s · branch %s · mode: %s"
                % (cfg.owner(), cfg.repo(), cfg.branch(), mode))
-    st.caption("Pulls the latest app code, role prompts, and engines. Your data is "
-               "kept separately and is never touched. Restart the app after updating.")
 
-    if st.button("Check for updates & update now"):
-        with st.spinner("Updating from GitHub…"):
+    installed = _installed_sha()
+    latest = _latest_remote_sha()
+    if latest:
+        if installed and installed == latest:
+            st.success("You're on the latest version (%s)." % latest[:8])
+        elif installed:
+            st.warning("Update available: installed %s → latest %s."
+                       % (installed[:8], latest[:8]))
+        else:
+            st.info("Latest version on GitHub: %s. (Install version unknown — "
+                    "update once to start tracking.)" % latest[:8])
+    else:
+        st.caption("Couldn't reach GitHub to check the latest version (offline?).")
+
+    st.caption("Downloads the latest code, role prompts, and engines from GitHub and "
+               "saves them here. Your data and secrets are never touched.")
+
+    if st.button("Download & install update now", type="primary"):
+        with st.spinner("Downloading from GitHub…"):
             try:
                 if cfg.is_git_checkout():
-                    msg = _git_pull()
-                    detail = msg or "Already up to date."
+                    detail = _git_pull() or "Already up to date."
+                    changed = []
                 else:
-                    detail = _tarball_update()
+                    count, changed = _tarball_update()
+                    detail = "%d file(s) updated" % count
             except Exception as exc:
                 st.error("Update failed: %s" % exc)
                 return
+        if latest:
+            _save_installed_sha(latest)
         st.session_state["_last_update_ts"] = time.time()
-        st.success("Updated. " + detail)
-        st.warning("Close this window and restart Plan My Day to load the new version "
-                   "(double-click the Start Plan My Day launcher again).")
+        st.success("Downloaded and installed. " + detail
+                   + (" · key files: " + ", ".join(sorted(set(changed))) if changed else ""))
+        # The critical part — copying files does nothing until a FULL restart.
+        st.error(
+            "⚠️ RESTART REQUIRED — the new code is on disk but the app is still running "
+            "the old version in memory. A browser refresh will NOT load it.\n\n"
+            "1) Go to the terminal running the app and press Ctrl+C to stop it fully.\n"
+            "2) Relaunch: double-click 'Start Plan My Day', or run  py -m streamlit run app.py\n"
+            "3) Open a fresh browser tab at localhost:8501.")
