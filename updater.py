@@ -119,6 +119,39 @@ def _tarball_update():
     return n, key
 
 
+def update_available():
+    """(is_update_available, latest_sha). Compares the last-installed SHA to GitHub's
+    latest commit SHA. Cached in session ~30 min so it doesn't hit GitHub every rerun.
+    Baselines silently on first run so a fresh machine isn't nagged."""
+    now = time.time()
+    cache = st.session_state.get("_upd_check")
+    if cache and (now - cache.get("at", 0)) < 1800:
+        latest = cache.get("latest", "")
+    else:
+        latest = _latest_remote_sha()
+        st.session_state["_upd_check"] = {"latest": latest, "at": now}
+    if not latest:
+        return False, ""
+    installed = _installed_sha()
+    if not installed:
+        _save_installed_sha(latest)      # first run -> baseline, don't nag
+        return False, latest
+    return (installed != latest), latest
+
+
+def render_update_banner():
+    """Prominent main-page banner shown ONLY when a newer build exists on GitHub.
+    Disappears automatically once the machine updates to that build."""
+    try:
+        avail, _latest = update_available()
+    except Exception:
+        return
+    if avail:
+        st.warning("🔔  **Update your app — a new build has been released.**  "
+                   "Open **Settings → App updates** and click *Download & install*, "
+                   "then restart the app.")
+
+
 def render_update_section(user):
     st.markdown("#### App updates")
     mode = "git checkout" if cfg.is_git_checkout() else "zip install"

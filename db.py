@@ -111,10 +111,12 @@ def init_schema(ddl_path=None):
 # the only rename is the users sheet.
 TAB_TO_TABLE = {
     "users_master": "users",
+    "dump_types": "dump_types",
+    "mis_types": "mis_types",
 }
 
 # Tables that are GLOBAL/shared (no user_key filter): everyone reads/writes all rows.
-GLOBAL_TABLES = {"users", "team_roster", "content"}
+GLOBAL_TABLES = {"users", "team_roster", "content", "dump_types", "mis_types"}
 
 # Cache of each table's real columns (so we only write columns that exist, and ignore
 # surrogate auto-id columns like task_log.id on insert). Filled on first use per table.
