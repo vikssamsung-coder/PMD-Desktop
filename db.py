@@ -54,12 +54,24 @@ _enabled_cache = None
 
 
 def enabled():
-    """True when Postgres is usable: psycopg present AND a URL configured."""
+    """True when Postgres is usable: psycopg present AND a URL configured.
+    NEVER caches a False result — a transient False (e.g. secrets not loaded yet on the
+    first call, or a momentary import issue) must not stick for the whole session and
+    silently send every write to local files. Only a True is cached."""
     global _enabled_cache
-    if _enabled_cache is not None:
-        return _enabled_cache
+    if _enabled_cache:
+        return True
     _enabled_cache = bool(_HAVE_PG and _url())
     return _enabled_cache
+
+
+def diagnostics():
+    """Plain facts about the DB connection, for troubleshooting 'saved locally' issues."""
+    try:
+        url_ok = bool(_url())
+    except Exception:
+        url_ok = False
+    return {"psycopg_imported": bool(_HAVE_PG), "url_present": url_ok, "enabled": enabled()}
 
 
 def _get_pool():

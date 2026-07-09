@@ -3262,6 +3262,21 @@ def _admin_users_panel():
 
     st.divider()
     with st.expander("⚙️ Database schema (Neon)"):
+        try:
+            import db as _dbmod
+            d = _dbmod.diagnostics()
+            good = d["psycopg_imported"] and d["url_present"] and d["enabled"]
+            line = (f"psycopg imported: **{d['psycopg_imported']}** · "
+                    f"NEON_DATABASE_URL present: **{d['url_present']}** · "
+                    f"Neon active: **{d['enabled']}**")
+            (st.success if good else st.error)(line)
+            if not good:
+                st.caption("If Neon active is False, saves go to LOCAL files, not the shared "
+                           "database. psycopg False → the driver didn't install (check logs). "
+                           "URL present False → NEON_DATABASE_URL isn't readable (must be a "
+                           "top-level key in Secrets, not nested). Reboot the app after fixing.")
+        except Exception as _e:
+            st.caption(f"diagnostics unavailable: {_e}")
         st.caption("Create any missing tables in the shared Neon database (e.g. login_log). "
                    "Idempotent and safe to run anytime — it only adds what's missing and "
                    "never touches existing data. Both the cloud and desktop apps use this "
