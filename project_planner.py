@@ -54,13 +54,13 @@ def _pctf(v):
 
 
 def _days_left(end, today):
-    return (end - today).days if end else None
+    return (end - today).days if isinstance(end, date) else None
 
 
 def _health(status, end, percent, today):
     if str(status or "").strip().lower() == "done" or _pctf(percent) >= 100:
         return "Done"
-    if end is None:
+    if not isinstance(end, date):
         return "No date"
     if end < today:
         return "Overdue"
