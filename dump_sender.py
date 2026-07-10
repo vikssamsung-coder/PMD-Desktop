@@ -32,6 +32,31 @@ MIS_KEYWORD = "[MIS REQUEST]"
 DEFAULT_PART_MB = 10
 
 
+def _working(label="Working…"):
+    """Green spinning-clock 'in progress' indicator (local copy — avoids importing app.py)."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _cm():
+        ph = st.empty()
+        ph.markdown(
+            "<div style='display:flex;align-items:center;gap:9px;padding:4px 0;'>"
+            "<span class='pmd-ring'></span>"
+            f"<span style='color:#1B7F4B;font-weight:600;font-size:0.9rem;'>{label}</span>"
+            "</div>"
+            "<style>@keyframes pmdspin{to{transform:rotate(360deg)}}"
+            ".pmd-ring{width:16px;height:16px;border:2.5px solid #B7E4C7;"
+            "border-top-color:#1B7F4B;border-radius:50%;display:inline-block;"
+            "animation:pmdspin .8s linear infinite;}</style>",
+            unsafe_allow_html=True)
+        try:
+            yield
+        finally:
+            ph.empty()
+
+    return _cm()
+
+
 def _work_dir():
     d = os.path.join(paths.common_dir(), "dump_sender")
     os.makedirs(d, exist_ok=True)
@@ -382,12 +407,28 @@ def _send_dump_ui(user, sender_email, receiver_email):
     dry = c[2].checkbox("Dry run", key="dump_dry")
     notes = st.text_area("Notes (optional)", height=68, key="dump_notes")
 
+    # Optional: also request an MIS report in the same action.
+    also_report = st.checkbox("Also request a report with this dump", key="dump_also_mis")
+    mis_sel = None
+    mis_params = ""
+    if also_report:
+        mtypes = storage.get_mis_types(active_only=True)
+        if mtypes:
+            mlabels = [t["name"] for t in mtypes]
+            msel = st.selectbox("Report to request", mlabels, key="dump_mis_sel")
+            mis_sel = mtypes[mlabels.index(msel)]
+            mhint = str(mis_sel.get("params_hint", "") or "")
+            mis_params = st.text_input("Report parameters" + (f" ({mhint})" if mhint else ""),
+                                       key="dump_mis_params")
+        else:
+            st.caption("No MIS types configured yet — ask an admin to add one.")
+
     if st.button("Send dump to Sarthi", type="primary", key="dump_send"):
         if not files:
             st.error("Upload at least one file."); return
         if not sender_email.strip() or not receiver_email.strip():
             st.error("Your email and Sarthi email are required."); return
-        with st.spinner("Zipping, splitting and sending…"):
+        with _working("Zipping, splitting and sending…"):
             saved = _save_uploads(files, "_" + _now_id())
             bar = st.progress(0.0)
             res = send_dump(saved, dtype, sender_email.strip(), receiver_email.strip(),
@@ -399,6 +440,17 @@ def _send_dump_ui(user, sender_email, receiver_email):
             st.success(f"{'Prepared' if dry else 'Sent'} {res['total_parts']} part(s) "
                        f"({_human(res['package_size'])} zip, {res['rows_count']} rows) "
                        f"to {res['receiver']}.{extra}  Batch: {res['batch_id']}")
+            # fire the optional report request after a successful dump
+            if mis_sel is not None:
+                with _working("Sending report request…"):
+                    ok, msg, rid = request_mis(user.get("user_key", ""), mis_sel,
+                                               sender_email.strip(), receiver_email.strip(),
+                                               mis_params, notes, dry_run=dry)
+                if ok:
+                    st.success(f"Also requested “{mis_sel['name']}” — Sarthi will email it "
+                               f"to {sender_email.strip()}. Request id: {rid}")
+                else:
+                    st.warning(f"Dump sent, but the report request failed: {msg}")
         else:
             st.error(f"{res['sent']} sent, {res['failed']} failed. "
                      + "; ".join(f"part {x['part']}: {x['msg']}" for x in res["failures"]))
@@ -423,7 +475,7 @@ def _request_mis_ui(user, sender_email, receiver_email):
     if st.button("Send request to Sarthi", type="primary", key="mis_send"):
         if not sender_email.strip():
             st.error("Your email is required — Sarthi sends the report there."); return
-        with st.spinner("Sending request…"):
+        with _working("Sending request…"):
             ok, msg, req_id = request_mis(uk, mis, sender_email.strip(), receiver_email.strip(),
                                           params, notes, dry_run=dry)
         if ok:
