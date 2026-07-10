@@ -43,6 +43,10 @@ try:
     import dump_sender               # Desktop-only "Update the Dump" (Outlook email)
 except Exception:
     dump_sender = None
+try:
+    import mindmap                   # Mind Map (Level 1 auto-layout)
+except Exception:
+    mindmap = None
 
 st.set_page_config(page_title="Plan My Day", page_icon="🌅", layout="wide")
 
@@ -3022,6 +3026,8 @@ def header_nav(is_lead, partner_ok=True, is_admin=False):
         desktop_extra.append(("Reports", "bar-chart"))
     if dump_sender is not None and not storage._on_cloud_host():
         desktop_extra.append(("Sarthi", "send"))
+    if mindmap is not None and not storage._on_cloud_host():
+        desktop_extra.append(("Mind Map", "sitemap"))
 
     # (group label, group icon, [(tab, icon), ...]) — tabs filtered by permission/availability
     groups = [
@@ -3857,6 +3863,8 @@ def main():
         _routes["Reports"] = reports_engine.reports_view
     if dump_sender is not None:
         _routes["Sarthi"] = dump_sender.sarthi_view
+    if mindmap is not None:
+        _routes["Mind Map"] = mindmap.mindmap_view
     _routes.get(choice, today_view)(user)
 
 
