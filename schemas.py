@@ -213,7 +213,7 @@ LEARNINGS_DIGEST = ["user_key", "brief", "source_count", "updated_at"]
 # Project Planner — main task + sub-task rows (per-user). Days-left & health are COMPUTED
 # from end_date/status/percent at render time, so they are not stored.
 PROJECT_TASKS = [
-    "row_id", "user_key", "project", "subtask", "owner", "priority", "status",
+    "row_id", "user_key", "heading", "project", "subtask", "owner", "priority", "status",
     "start_date", "end_date", "percent", "notes", "sort_order",
     "created_at", "updated_at",
 ]
