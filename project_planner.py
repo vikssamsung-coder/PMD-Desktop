@@ -230,7 +230,7 @@ def _render_board(df, today):
             pri = str(r["priority"] or "").strip().upper()
             pri_c = PRIORITY_COLORS.get(pri, "#8A94A0")
             def _dfmt(dt):
-                return dt.strftime("%d-%b-%y") if dt else "—"
+                return dt.strftime("%d-%b-%y") if isinstance(dt, date) else "—"
             title_style = "text-decoration:line-through;color:#9AA6B2;" if hl == "Done" else "color:#1B2733;font-weight:600;"
             html.append("<tr>")
             html.append(f'<td style="{base}{title_style}">{r["subtask"] or "—"}</td>')
