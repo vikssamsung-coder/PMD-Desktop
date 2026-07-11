@@ -131,7 +131,8 @@ def local_first():
 #   content      -> CMS updates pushed from the admin
 # (monthly_progress is NOT here: it stays local and is pushed up separately by
 #  sync_daily_progress so the analyst's own views stay fast.)
-NEON_TABLES = {"users_master", "login_log", "content", "dump_types", "mis_types"}
+NEON_TABLES = {"users_master", "login_log", "content", "dump_types", "mis_types",
+               "report_requests"}
 
 
 def _pg_for(path):
@@ -774,6 +775,39 @@ def delete_mind_node(user_key, map_id, node_id):
         stack.extend(kids.get(cur, []))
     rows = [r for r in rows if str(r.get("node_id")) not in doomed]
     _save_mind_nodes(user_key, map_id, rows)
+
+
+def _report_requests_path(user_key):
+    return os.path.join(_user_dir(user_key), "report_requests.xlsx")
+
+
+def submit_report_request(user_key, report_key, report_name, params, requester_email,
+                          source="desktop"):
+    """Save a report request to Neon (shared) so it works from cloud AND desktop, and the
+    Sarthi receiver can read it and trigger the report. Returns the req_id."""
+    import uuid as _uuid
+    import pandas as pd
+    try:
+        df = _read(_report_requests_path(user_key), schemas.REPORT_REQUESTS)
+    except Exception:
+        df = pd.DataFrame(columns=schemas.REPORT_REQUESTS)
+    rid = "rr_" + _uuid.uuid4().hex[:10]
+    row = {"req_id": rid, "user_key": user_key, "requester_email": requester_email or "",
+           "report_key": report_key, "report_name": report_name, "params": params or "",
+           "source": source, "status": "requested", "created_at": _now()}
+    df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+    _write(_report_requests_path(user_key), df, schemas.REPORT_REQUESTS)
+    return rid
+
+
+def get_report_requests(user_key, limit=25):
+    try:
+        df = _read(_report_requests_path(user_key), schemas.REPORT_REQUESTS)
+    except Exception:
+        return []
+    if df.empty:
+        return []
+    return list(reversed(df.to_dict("records")))[:limit]
 
 
 def available_roles():

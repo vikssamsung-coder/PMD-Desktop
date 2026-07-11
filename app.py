@@ -3024,10 +3024,10 @@ def header_nav(is_lead, partner_ok=True, is_admin=False):
     desktop_extra = []
     if reports_engine is not None and not storage._on_cloud_host():
         desktop_extra.append(("Reports", "bar-chart"))
-    if dump_sender is not None and not storage._on_cloud_host():
-        desktop_extra.append(("Sarthi", "send"))
-    if mindmap is not None and not storage._on_cloud_host():
-        desktop_extra.append(("Mind Map", "sitemap"))
+    if dump_sender is not None:
+        desktop_extra.append(("Sarthi", "send"))     # both platforms; Send Dumps is desktop-gated inside
+
+    mind_ok = mindmap is not None and not storage._on_cloud_host()
 
     # (group label, group icon, [(tab, icon), ...]) — tabs filtered by permission/availability
     groups = [
@@ -3038,7 +3038,8 @@ def header_nav(is_lead, partner_ok=True, is_admin=False):
         ("Work", "kanban",
             [("Records", "address-book")]
             + ([("Communicate", "send")] if partner_ok else [])
-            + [("Projects", "kanban")]),
+            + [("Projects", "kanban")]
+            + ([("Mind Map", "sitemap")] if mind_ok else [])),
         ("Track", "compass",
             [("Monthly", "compass"), ("Effort", "grid-3x3-gap-fill"),
              ("History", "clock-history"), ("Learning", "lightbulb")]),
